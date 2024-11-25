@@ -16,6 +16,7 @@ use crate::nexus_api::NxmLink;
 use std::rc::Rc;
 use std::cell::RefCell;
 use crate::mod_info::ModInfo;
+use std::path::PathBuf;
 
 const APP_ID: &str = "org.stalker2.modmanager";
 
@@ -120,14 +121,13 @@ fn build_ui(app: &Application) {
     gtk_settings.set_gtk_application_prefer_dark_theme(settings.dark_theme);
 
     // Save mods when the window is closed
-    window.connect_close_request(move |_window| {
+    window.connect_close_request(move |window| {
         let mut mods = Vec::new();
         let mut row = list_box.first_child();
         
         while let Some(widget) = row {
             if let Some(list_box_row) = widget.downcast_ref::<gtk::ListBoxRow>() {
                 if let Some(box_) = list_box_row.child().and_downcast::<gtk::Box>() {
-                    // Get all children first
                     let mut children = Vec::new();
                     let mut child = box_.first_child();
                     while let Some(widget) = child {
@@ -135,7 +135,7 @@ fn build_ui(app: &Application) {
                         child = widget.next_sibling();
                     }
 
-                    // Now process each child
+                    // Get name, version, author from labels
                     let name = children.get(0)
                         .and_then(|w| w.downcast_ref::<gtk::Label>())
                         .map(|l| l.text().to_string())
@@ -151,11 +151,22 @@ fn build_ui(app: &Application) {
                         .map(|l| l.text().to_string())
                         .unwrap_or_default();
                     
-                    // Get enabled state from switch
                     let enabled = box_.last_child()
                         .and_downcast::<gtk::Switch>()
                         .map(|s| s.is_active())
                         .unwrap_or_default();
+
+                    // Try to find the mod path based on the name
+                    let installed_path = if enabled {
+                        Some(mod_manager.borrow().mods_path().join(format!("{}.pak", name)))
+                    } else {
+                        Some(mod_manager.borrow().settings().game_path.clone()
+                            .unwrap_or_else(|| PathBuf::new())
+                            .join("Stalker2")
+                            .join("ModManager")
+                            .join("unloaded_mods")
+                            .join(format!("{}.pak", name)))
+                    };
 
                     let mod_info = ModInfo {
                         name,
@@ -163,7 +174,7 @@ fn build_ui(app: &Application) {
                         author,
                         description: String::new(),
                         nexus_mod_id: None,
-                        installed_path: None,
+                        installed_path,
                         enabled,
                     };
                     mods.push(mod_info);
@@ -173,6 +184,7 @@ fn build_ui(app: &Application) {
         }
 
         let _ = mod_manager.borrow_mut().save_mod_list(&mods);
+        window.destroy();
         glib::Propagation::Stop
     });
 
