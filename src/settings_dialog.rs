@@ -1,8 +1,11 @@
 use gtk::prelude::*;
-use gtk::{Dialog, Box, Label, Entry, Switch, ResponseType, Orientation, Button, FileChooserDialog, FileChooserAction};
+use gtk::{Dialog, Box, Label, Entry, Switch, ResponseType, Orientation, Button, FileChooserDialog, FileChooserAction, FileFilter, Window};
 use crate::settings::Settings;
+use crate::docs_window::show_docs_window;
+use crate::mod_manager::ModManager;
+use gtk::glib;
 
-pub fn show_settings_dialog(parent: &impl IsA<gtk::Window>) {
+pub fn show_settings_dialog(parent: &impl IsA<Window>) {
     let dialog = Dialog::builder()
         .title("Settings")
         .transient_for(parent)
@@ -43,6 +46,95 @@ pub fn show_settings_dialog(parent: &impl IsA<gtk::Window>) {
     theme_box.append(&theme_label);
     theme_box.append(&theme_switch);
     content.append(&theme_box);
+
+    // Add docs button
+    let docs_button = Button::with_label("Documentation");
+    content.append(&docs_button);
+
+    docs_button.connect_clicked(glib::clone!(@weak dialog => move |_| {
+        show_docs_window(&dialog);
+    }));
+
+    // Add export/import buttons
+    let io_box = Box::new(Orientation::Horizontal, 12);
+    let export_button = Button::with_label("Export Mods");
+    let import_button = Button::with_label("Import Mods");
+    io_box.append(&export_button);
+    io_box.append(&import_button);
+    content.append(&io_box);
+
+    // Export handler
+    export_button.connect_clicked(glib::clone!(@weak dialog => move |_| {
+        let file_chooser = FileChooserDialog::new(
+            Some("Export Mods"),
+            Some(&dialog),
+            FileChooserAction::Save,
+            &[("Cancel", ResponseType::Cancel), ("Export", ResponseType::Accept)]
+        );
+
+        let filter = FileFilter::new();
+        filter.add_pattern("*.zip");
+        filter.set_name(Some("ZIP files"));
+        file_chooser.add_filter(&filter);
+        
+        file_chooser.set_current_name("mods-export.zip");
+        
+        file_chooser.connect_response(move |file_chooser, response| {
+            if response == ResponseType::Accept {
+                if let Some(path) = file_chooser.file().and_then(|file| file.path()) {
+                    let settings = Settings::load();
+                    if let Ok(mod_manager) = ModManager::new(settings) {
+                        if let Err(e) = mod_manager.export_mods(&path) {
+                            eprintln!("Failed to export mods: {}", e);
+                        }
+                    }
+                }
+            }
+            file_chooser.close();
+        });
+
+        file_chooser.show();
+    }));
+
+    // Import handler
+    import_button.connect_clicked(glib::clone!(@weak dialog => move |_| {
+        let file_chooser = FileChooserDialog::new(
+            Some("Import Mods"),
+            Some(&dialog),
+            FileChooserAction::Open,
+            &[("Cancel", ResponseType::Cancel), ("Import", ResponseType::Accept)]
+        );
+
+        let filter = FileFilter::new();
+        filter.add_pattern("*.zip");
+        filter.set_name(Some("ZIP files"));
+        file_chooser.add_filter(&filter);
+        
+        file_chooser.connect_response(glib::clone!(@weak dialog => move |file_chooser, response| {
+            if response == ResponseType::Accept {
+                if let Some(path) = file_chooser.file().and_then(|file| file.path()) {
+                    let settings = Settings::load();
+                    if let Ok(mod_manager) = ModManager::new(settings) {
+                        match mod_manager.import_mods(&path) {
+                            Ok(_) => {
+                                if let Some(parent) = dialog.transient_for() {
+                                    unsafe {
+                                        if let Some(sender) = parent.data::<glib::Sender<()>>("refresh_sender") {
+                                            sender.as_ref().send(()).expect("Failed to send refresh signal");
+                                        }
+                                    }
+                                }
+                            },
+                            Err(e) => eprintln!("Failed to import mods: {}", e),
+                        }
+                    }
+                }
+            }
+            file_chooser.close();
+        }));
+
+        file_chooser.show();
+    }));
 
     // Load current settings
     let settings = Settings::load();

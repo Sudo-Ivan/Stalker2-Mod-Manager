@@ -1,12 +1,13 @@
 [package]
 name = "stalker2-mod-manager"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Sudo-Ivan>"]
 description = "A mod manager for S.T.A.L.K.E.R. 2: Heart of Chornobyl"
 
 [dependencies]
 gtk = { package = "gtk4", version = "0.7", features = ["v4_8"] }
+gdk = { package = "gdk4", version = "0.7" }
 gio = "0.18.2"
 glib = "0.18.2"
 reqwest = { version = "0.11", features = ["json"] }
@@ -16,3 +17,11 @@ serde_json = "1.0"
 directories = "5.0"
 anyhow = "1.0"
 url = "2.5.0"
+pulldown-cmark = "0.9"
+zip = "0.6"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

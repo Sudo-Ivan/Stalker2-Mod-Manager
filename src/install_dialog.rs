@@ -303,19 +303,21 @@ fn install_local_mod(mod_manager: &ModManager, source_path: &Path) -> anyhow::Re
     // Create mods directory if it doesn't exist
     std::fs::create_dir_all(mod_manager.mods_path())?;
 
-    // Get the filename from the source path
+    // Get the filename and clean it
     let file_name = source_path.file_name()
         .ok_or_else(|| anyhow::anyhow!("Invalid file name"))?;
+    let name = file_name.to_string_lossy();
+    let clean_name = name.trim_end_matches(".pak").to_string() + ".pak";
 
     // Construct destination path
-    let dest_path = mod_manager.mods_path().join(file_name);
+    let dest_path = mod_manager.mods_path().join(&clean_name);
 
     // Copy the file
     std::fs::copy(source_path, &dest_path)?;
 
     // Create ModInfo from local file
     Ok(ModInfo {
-        name: file_name.to_string_lossy().into_owned(),
+        name: clean_name,
         version: "Local".to_string(),
         author: "Local".to_string(),
         description: "Locally installed mod".to_string(),

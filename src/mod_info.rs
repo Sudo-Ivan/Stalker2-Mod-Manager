@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use gtk::prelude::*;
-use gtk::glib::{self, clone};
+use gtk::glib;
 use crate::settings::Settings;
 use crate::mod_manager::ModManager;
 
@@ -36,13 +36,19 @@ impl ModInfo {
         enable_switch.set_active(self.enabled);
 
         if let Some(path) = self.installed_path.clone() {
-            enable_switch.connect_state_set(move |_switch, state| {
+            enable_switch.connect_state_set(move |switch, state| {
                 let settings = Settings::load();
                 if let Ok(mod_manager) = ModManager::new(settings) {
-                    if state {
-                        let _ = mod_manager.enable_mod(&path);
+                    println!("Toggling mod state: {} -> {}", path.display(), state);
+                    let result = if state {
+                        mod_manager.enable_mod(&path)
                     } else {
-                        let _ = mod_manager.disable_mod(&path);
+                        mod_manager.disable_mod(&path)
+                    };
+
+                    if let Err(e) = result {
+                        eprintln!("Failed to toggle mod state: {}", e);
+                        switch.set_active(!state);
                     }
                 }
                 glib::Propagation::Stop
