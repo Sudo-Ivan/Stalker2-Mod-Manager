@@ -9,8 +9,6 @@ mod docs_window;
 use gtk::prelude::*;
 use gtk::{Application, ApplicationWindow, HeaderBar, Button, Box, ScrolledWindow, 
          Orientation};
-use glib::ControlFlow;
-use gtk::glib::{MainContext, Priority};
 use crate::settings::Settings;
 use crate::mod_manager::ModManager;
 use crate::install_dialog::{show_install_dialog, show_install_dialog_with_nxm};
@@ -20,30 +18,30 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use crate::mod_info::ModInfo;
 use std::path::PathBuf;
+use async_channel::bounded;
 
-const APP_ID: &str = "org.stalker2.modmanager";
+const APP_ID: &str = "org.stalker2.mod.manager";
 
 fn main() -> glib::ExitCode {
-    // Initialize the tokio runtime
-    let rt = tokio::runtime::Runtime::new().expect("Unable to create Tokio runtime");
-    
-    // Set the runtime as the default for this thread
-    let _guard = rt.enter();
+    // Initialize GTK first
+    gtk::init().expect("Failed to initialize GTK");
+
+    // Initialize GTK settings more safely
+    if let Some(settings) = gtk::Settings::default() {
+        settings.set_gtk_cursor_theme_size(24);
+    }
 
     let app = Application::builder()
         .application_id(APP_ID)
-        .flags(gtk::gio::ApplicationFlags::HANDLES_OPEN)
         .build();
 
     app.connect_activate(build_ui);
-    
-    // Handle NXM links
-    app.connect_open(|app, files, _| {
-        for file in files {
-            let uri = file.uri().to_string();
-            if uri.starts_with("nxm://") {
-                handle_nxm_link(app, &uri);
-            }
+
+    let (_sender, receiver) = bounded::<()>(1);
+
+    // Set up receiver
+    glib::spawn_future_local(async move {
+        while receiver.recv().await.is_ok() {
         }
     });
 
@@ -227,18 +225,14 @@ fn build_ui(app: &Application) {
     window.add_controller(drop_target);
     window.present();
 
-    // In your build_ui function, after creating the window
-    let (sender, receiver) = MainContext::channel::<()>(Priority::default());
+    let (sender, receiver) = bounded::<()>(1);
 
-    // Store sender in window data safely
     unsafe {
-        window.set_data("refresh_sender", sender.clone());
+        window.set_data("refresh_sender", sender);
     }
 
-    // Set up receiver with proper control flow
-    receiver.attach(
-        None,
-        move |_| {
+    glib::spawn_future_local(async move {
+        while receiver.recv().await.is_ok() {
             if let Ok(mods) = mod_manager.borrow().load_mod_list() {
                 // Clear existing items
                 while let Some(child) = list_box.first_child() {
@@ -250,7 +244,6 @@ fn build_ui(app: &Application) {
                     list_box.append(&mod_info.to_list_box_row());
                 }
             }
-            true.into()
-        },
-    );
+        }
+    });
 }

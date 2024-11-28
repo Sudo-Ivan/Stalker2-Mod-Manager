@@ -19,6 +19,7 @@ anyhow = "1.0"
 url = "2.5.0"
 pulldown-cmark = "0.9"
 zip = "0.6"
+async-channel = "2.1"
 
 [profile.release]
 opt-level = "z"

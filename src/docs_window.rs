@@ -170,21 +170,24 @@ pub fn show_docs_window(parent: &impl IsA<Window>) {
             margin-bottom: 8px;
             color: @theme_fg_color;
         }
-        slider {
-            min-width: 1px;
-            min-height: 1px;
+        
+        /* Handle cursor through CSS */
+        window, * {
+            cursor: default;
+            -gtk-icon-theme: 'Adwaita';
+            cursor-theme-size: 32;
         }
         
-        * {
-            -gtk-icon-theme: 'Adwaita';
-            cursor-size: 24;
+        scrolledwindow {
+            min-width: 2px;
+            min-height: 2px;
         }
     ";
     css_provider.load_from_data(css);
 
     window.style_context().add_provider(
         &css_provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
     );
 
     window.present();
