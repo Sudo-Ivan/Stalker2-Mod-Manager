@@ -185,9 +185,10 @@ pub fn show_docs_window(parent: &impl IsA<Window>) {
     ";
     css_provider.load_from_data(css);
 
-    window.style_context().add_provider(
+    StyleContext::add_provider_for_display(
+        &window.display(),
         &css_provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
 
     window.present();

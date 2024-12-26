@@ -6,10 +6,10 @@ authors = ["Sudo-Ivan>"]
 description = "A mod manager for S.T.A.L.K.E.R. 2: Heart of Chornobyl"
 
 [dependencies]
-gtk = { package = "gtk4", version = "0.7", features = ["v4_8"] }
-gdk = { package = "gdk4", version = "0.7" }
-gio = "0.18.2"
-glib = "0.18.2"
+gtk = { package = "gtk4", version = "0.9", features = ["v4_10"] }
+gdk = { package = "gdk4", version = "0.9" }
+gio = "0.20.0"
+glib = "0.20.0"
 reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

@@ -1,6 +1,11 @@
 use gtk::prelude::*;
-use gtk::{Dialog, Box, Label, Entry, ProgressBar, ResponseType, Orientation, Button, Window, FileChooserDialog, FileChooserAction, FileFilter};
-use gtk::glib::{self, clone};
+use gtk::{
+    Dialog, Box, Label, Entry, ProgressBar, ResponseType, 
+    Orientation, Button, Window, FileDialog, AlertDialog,
+    FileFilter,
+};
+use gtk::glib::{self, closure_local};
+use gtk::gio::{self, ListStore};
 use std::path::Path;
 use crate::mod_info::ModInfo;
 use crate::mod_manager::ModManager;
@@ -10,14 +15,15 @@ use std::fs;
 use tempfile::tempdir;
 
 pub fn show_install_dialog(parent: &impl IsA<gtk::Window>, list_box: &gtk::ListBox) {
-    let dialog = Dialog::builder()
-        .title("Install Mod")
-        .transient_for(parent)
-        .modal(true)
-        .default_width(400)
-        .build();
+    let dialog = Window::new();
+    dialog.set_title(Some("Install Mod"));
+    dialog.set_transient_for(Some(parent));
+    dialog.set_modal(true);
+    dialog.set_default_width(400);
 
-    let content = dialog.content_area();
+    let content = Box::new(Orientation::Vertical, 10);
+    dialog.set_child(Some(&content));
+
     content.set_spacing(12);
     content.set_margin_start(12);
     content.set_margin_end(12);
@@ -45,10 +51,8 @@ pub fn show_install_dialog(parent: &impl IsA<gtk::Window>, list_box: &gtk::ListB
     status_label.set_selectable(true);
     content.append(&status_label);
 
-    dialog.add_button("Cancel", ResponseType::Cancel);
-    let install_button = dialog.add_button("Install", ResponseType::Accept)
-        .downcast::<Button>()
-        .expect("Couldn't downcast to Button");
+    let cancel_button = Button::with_label("Cancel");
+    let install_button = Button::with_label("Install");
 
     // Add buttons box for multiple installation options
     let buttons_box = Box::new(Orientation::Horizontal, 12);
@@ -62,12 +66,12 @@ pub fn show_install_dialog(parent: &impl IsA<gtk::Window>, list_box: &gtk::ListB
     content.append(&buttons_box);
 
     // Connect local install button
-    local_button.connect_clicked(clone!(@weak dialog, @weak list_box => move |_| {
+    local_button.connect_clicked(closure_local!(@watch dialog, @watch list_box => move |_| {
         show_file_chooser_dialog(&dialog, &list_box);
     }));
 
     // Connect Nexus install button (previous install functionality)
-    nexus_button.connect_clicked(clone!(@weak dialog, @weak id_entry, @weak progress_bar, @weak status_label, @weak list_box => move |_| {
+    nexus_button.connect_clicked(closure_local!(@watch dialog, @watch id_entry, @watch progress_bar, @watch status_label, @watch list_box, @watch install_button => move |_| {
         let mod_ids: Result<Vec<i32>, _> = id_entry.text()
             .split(',')
             .map(|s| s.trim().parse::<i32>())
@@ -84,7 +88,7 @@ pub fn show_install_dialog(parent: &impl IsA<gtk::Window>, list_box: &gtk::ListB
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 
                 let ctx = glib::MainContext::default();
-                ctx.spawn_local(clone!(@weak dialog, @weak progress_bar, @weak status_label, @weak list_box, @weak install_button => async move {
+                ctx.spawn_local(closure_local!(@watch dialog, @watch progress_bar, @watch status_label, @watch list_box, @watch install_button => async move {
                     let settings = Settings::load();
                     let mod_manager = ModManager::new(settings).unwrap();
                     let total_mods = ids.len() as f64;
@@ -92,7 +96,6 @@ pub fn show_install_dialog(parent: &impl IsA<gtk::Window>, list_box: &gtk::ListB
                     let mut errors = Vec::new();
 
                     for (index, mod_id) in ids.iter().enumerate() {
-                        let base_progress = (index as f64) / total_mods;
                         status_label.set_text(&format!("Installing mod {} of {}", index + 1, ids.len()));
                         
                         // Use the runtime to execute async operations
@@ -131,11 +134,9 @@ pub fn show_install_dialog(parent: &impl IsA<gtk::Window>, list_box: &gtk::ListB
         }
     }));
 
-    dialog.connect_response(|dialog, response| {
-        if response == ResponseType::Cancel {
-            dialog.close();
-        }
-    });
+    cancel_button.connect_clicked(closure_local!(@watch dialog => move |_| {
+        dialog.close();
+    }));
 
     dialog.present();
 }
@@ -188,7 +189,7 @@ pub fn show_install_dialog_with_nxm(parent: &impl IsA<gtk::Window>, list_box: &g
     let nxm_expires = nxm.expires;
 
     // Connect install button click
-    install_button.connect_clicked(clone!(@weak dialog, @weak progress_bar, @weak status_label, @weak list_box, @weak install_button, @strong nxm_key => move |_| {
+    install_button.connect_clicked(closure_local!(@watch dialog, @watch progress_bar, @watch status_label, @watch list_box, @watch install_button, @strong nxm_key => move |_| {
         progress_bar.set_visible(true);
         progress_bar.set_fraction(0.0);
         status_label.set_text("Installing mod...");
@@ -197,7 +198,7 @@ pub fn show_install_dialog_with_nxm(parent: &impl IsA<gtk::Window>, list_box: &g
         let ctx = glib::MainContext::default();
         let nxm_key = nxm_key.clone(); // Clone again for the inner closure
         
-        ctx.spawn_local(clone!(@weak dialog, @weak progress_bar, @weak status_label, @weak list_box, @weak install_button, @strong nxm_key => async move {
+        ctx.spawn_local(closure_local!(@watch dialog, @watch progress_bar, @watch status_label, @watch list_box, @watch install_button, @strong nxm_key => async move {
             let settings = Settings::load();
             let mod_manager = ModManager::new(settings).unwrap();
             
@@ -255,7 +256,6 @@ async fn install_mod(mod_manager: &ModManager, mod_id: i32, progress_bar: &Progr
         
         // Extract pak files
         let mut pak_path = None;
-        let mut pak_name = None;
         if let Ok(file) = std::fs::File::open(&temp_zip) {
             if let Ok(mut archive) = zip::ZipArchive::new(file) {
                 for i in 0..archive.len() {
@@ -268,7 +268,6 @@ async fn install_mod(mod_manager: &ModManager, mod_id: i32, progress_bar: &Progr
                         if outpath.extension().map_or(false, |ext| ext == "pak") {
                             // Use the original filename from the zip
                             let pak_filename = outpath.file_name().unwrap();
-                            pak_name = Some(pak_filename.to_string_lossy().to_string());
                             let pak_path_temp = mod_manager.mods_path().join(pak_filename);
                             let mut outfile = std::fs::File::create(&pak_path_temp)?;
                             std::io::copy(&mut zip_file, &mut outfile)?;
@@ -307,47 +306,40 @@ async fn install_mod(mod_manager: &ModManager, mod_id: i32, progress_bar: &Progr
 }
 
 pub fn show_file_chooser_dialog(parent: &impl IsA<Window>, list_box: &gtk::ListBox) {
-    let file_chooser = FileChooserDialog::new(
-        Some("Select Mod File"),
+    let file_chooser = FileDialog::builder()
+        .title("Select Mod File")
+        .modal(true)
+        .build();
+
+    // Create filter list
+    let filter_list = ListStore::new(gtk::FileFilter::static_type());
+    let filters = gtk::FileFilter::new();
+    filters.add_pattern("*.pak");
+    filters.add_pattern("*.zip");
+    filters.set_name(Some("Mod Files"));
+    filter_list.append(&filters);
+    
+    file_chooser.set_filters(Some(&filter_list));
+
+    // Update to use closure_local instead of deprecated clone! macro
+    file_chooser.open(
         Some(parent),
-        FileChooserAction::Open,
-        &[("Cancel", ResponseType::Cancel), ("Open", ResponseType::Accept)]
-    );
-
-    // Add filters for both .pak and .zip files
-    let pak_filter = FileFilter::new();
-    pak_filter.add_pattern("*.pak");
-    pak_filter.set_name(Some("PAK files"));
-    file_chooser.add_filter(&pak_filter);
-
-    let zip_filter = FileFilter::new();
-    zip_filter.add_pattern("*.zip");
-    zip_filter.set_name(Some("ZIP files"));
-    file_chooser.add_filter(&zip_filter);
-
-    file_chooser.connect_response(clone!(@weak list_box => move |file_chooser, response| {
-        if response == ResponseType::Accept {
-            if let Some(file) = file_chooser.file() {
+        None::<&gio::Cancellable>,
+        closure_local!(@watch list_box => move |result| {
+            if let Ok(file) = result {
                 if let Some(path) = file.path() {
                     let settings = Settings::load();
                     if let Ok(mod_manager) = ModManager::new(settings) {
                         match path.extension().and_then(|ext| ext.to_str()) {
-                            Some("pak") => {
-                                handle_pak_file(&mod_manager, &path, &list_box);
-                            },
-                            Some("zip") => {
-                                handle_zip_file(&mod_manager, &path, &list_box);
-                            },
+                            Some("pak") => handle_pak_file(&mod_manager, &path, &list_box),
+                            Some("zip") => handle_zip_file(&mod_manager, &path, &list_box),
                             _ => eprintln!("Unsupported file type"),
                         }
                     }
                 }
             }
-        }
-        file_chooser.close();
-    }));
-
-    file_chooser.show();
+        })
+    );
 }
 
 fn handle_pak_file(mod_manager: &ModManager, path: &Path, list_box: &gtk::ListBox) {
@@ -410,17 +402,11 @@ fn handle_zip_file(mod_manager: &ModManager, path: &Path, list_box: &gtk::ListBo
 }
 
 fn show_error_dialog(parent: &impl IsA<Window>, message: &str) {
-    let dialog = gtk::MessageDialog::new(
-        Some(parent),
-        gtk::DialogFlags::MODAL,
-        gtk::MessageType::Error,
-        gtk::ButtonsType::Ok,
-        message,
-    );
-    
-    dialog.connect_response(|dialog, _| {
-        dialog.close();
-    });
-    
-    dialog.present();
+    let dialog = AlertDialog::builder()
+        .modal(true)
+        .message(message)
+        .buttons(["OK"])
+        .build();
+
+    dialog.show(Some(parent));
 } 
