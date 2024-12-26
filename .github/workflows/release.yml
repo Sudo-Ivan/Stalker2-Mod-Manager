@@ -24,17 +24,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
 
-      # Compile and release
-      - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.5
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
+
+      - name: Create archive
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ${{ matrix.binary_name }}-${{ matrix.target }}.tar.gz ${{ matrix.binary_name }} ../../README.md ../../LICENSE
+
+      # Upload archive
+      - name: Upload archive
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          RUSTTARGET: ${{ matrix.target }}
-          ARCHIVE_TYPES: ${{ matrix.archive }}
-          ARCHIVE_NAME: ${{ matrix.binary_name }}-${{ matrix.target }}.${{ matrix.archive }}
-          MINIFY: true
-          EXTRA_FILES: "README.md LICENSE"
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./target/${{ matrix.target }}/release/${{ matrix.binary_name }}-${{ matrix.target }}.tar.gz
+          asset_name: ${{ matrix.binary_name }}-${{ matrix.target }}.tar.gz
+          asset_content_type: application/gzip
 
       # Upload raw binary
       - name: Upload raw binary
