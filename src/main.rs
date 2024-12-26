@@ -97,9 +97,25 @@ fn build_ui(app: &Application) {
             margin: 2px;
             border-radius: 6px;
             min-height: 40px;
+            background-color: transparent;
         }
         .mod-list row:hover {
             background-color: alpha(@theme_fg_color, 0.05);
+        }
+        switch {
+            margin: 4px;
+        }
+        switch:disabled {
+            opacity: 0.6;
+        }
+        switch:disabled slider {
+            background-color: @theme_bg_color;
+        }
+        switch:disabled:checked {
+            background-color: alpha(@theme_selected_bg_color, 0.3);
+        }
+        switch:disabled:not(:checked) {
+            background-color: alpha(@theme_fg_color, 0.1);
         }
         "
     );

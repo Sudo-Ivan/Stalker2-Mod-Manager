@@ -107,29 +107,67 @@ impl ModManager {
     }
 
     pub fn enable_mod(&self, mod_path: &Path) -> Result<()> {
-        if !mod_path.starts_with(&self.mods_path) {
-            let file_name = mod_path.file_name()
-                .ok_or_else(|| anyhow::anyhow!("Invalid mod file name"))?;
-            let new_path = self.mods_path.join(file_name);
-            if new_path.exists() {
-                std::fs::remove_file(&new_path)?;
-            }
-            std::fs::rename(mod_path, new_path)?;
+        eprintln!("Enabling mod: {:?}", mod_path);
+        
+        let file_name = mod_path.file_name()
+            .ok_or_else(|| anyhow::anyhow!("Invalid mod file name"))?;
+        
+        // Get absolute paths
+        let game_path = self.settings.game_path.clone()
+            .ok_or_else(|| anyhow::anyhow!("Game path not set"))?;
+        
+        // Check if the file is in the unloaded mods directory
+        let unloaded_path = self.unloaded_mods_path.join(file_name);
+        let enabled_path = self.mods_path.join(file_name);
+        
+        eprintln!("Checking unloaded path: {:?}", unloaded_path);
+        eprintln!("Checking enabled path: {:?}", enabled_path);
+        
+        // If it's already in the enabled directory, nothing to do
+        if enabled_path.exists() {
+            eprintln!("Mod is already enabled");
+            return Ok(());
         }
-        Ok(())
+        
+        // If it's in the unloaded directory, move it
+        if unloaded_path.exists() {
+            std::fs::create_dir_all(&self.mods_path)?;
+            std::fs::rename(&unloaded_path, &enabled_path)?;
+            eprintln!("Moved mod from unloaded to enabled directory");
+            return Ok(());
+        }
+        
+        Err(anyhow::anyhow!("Mod file not found in expected locations"))
     }
 
     pub fn disable_mod(&self, mod_path: &Path) -> Result<()> {
-        if !mod_path.starts_with(&self.unloaded_mods_path) {
-            let file_name = mod_path.file_name()
-                .ok_or_else(|| anyhow::anyhow!("Invalid mod file name"))?;
-            let new_path = self.unloaded_mods_path.join(file_name);
-            if new_path.exists() {
-                std::fs::remove_file(&new_path)?;
-            }
-            std::fs::rename(mod_path, new_path)?;
+        eprintln!("Disabling mod: {:?}", mod_path);
+        
+        let file_name = mod_path.file_name()
+            .ok_or_else(|| anyhow::anyhow!("Invalid mod file name"))?;
+        
+        // Check if the file is in the enabled mods directory
+        let unloaded_path = self.unloaded_mods_path.join(file_name);
+        let enabled_path = self.mods_path.join(file_name);
+        
+        eprintln!("Checking unloaded path: {:?}", unloaded_path);
+        eprintln!("Checking enabled path: {:?}", enabled_path);
+        
+        // If it's already in the unloaded directory, nothing to do
+        if unloaded_path.exists() {
+            eprintln!("Mod is already disabled");
+            return Ok(());
         }
-        Ok(())
+        
+        // If it's in the enabled directory, move it
+        if enabled_path.exists() {
+            std::fs::create_dir_all(&self.unloaded_mods_path)?;
+            std::fs::rename(&enabled_path, &unloaded_path)?;
+            eprintln!("Moved mod from enabled to unloaded directory");
+            return Ok(());
+        }
+        
+        Err(anyhow::anyhow!("Mod file not found in expected locations"))
     }
 
     pub fn nexus_client(&self) -> Option<&NexusClient> {
@@ -331,5 +369,9 @@ impl ModManager {
         current_mods.push(mod_info);
         self.save_mod_list(&current_mods)?;
         Ok(())
+    }
+
+    pub fn unloaded_mods_path(&self) -> &Path {
+        &self.unloaded_mods_path
     }
 } 

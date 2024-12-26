@@ -7,6 +7,6 @@ The Nexus Mod Downloader requires a premium account and API key. But it can mana
 ## Features
 
 - Manage and detect current Pak Files in ~mods
-- Install from Nexus Mods (Testing)
+- Install from Nexus Mods (Testing) (Premium Account Required)
 - Export/Import Mods
 - Documentation

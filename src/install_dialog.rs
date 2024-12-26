@@ -235,9 +235,9 @@ async fn install_mod(mod_manager: &ModManager, mod_id: i32, progress_bar: &Progr
     progress_bar.set_fraction(0.4);
     let mod_files = client.get_mod_files(mod_id).await?;
     
-    // Get the latest main file (filter for category_name "MAIN")
+    // Get the latest main file
     let file = mod_files.iter()
-        .filter(|f| f.category_id == Some(1)) // 1 is MAIN category
+        .filter(|f| f.category_id == Some(1))
         .max_by_key(|f| f.version.clone())
         .ok_or_else(|| anyhow::anyhow!("No main files available for this mod"))?;
     
@@ -245,10 +245,44 @@ async fn install_mod(mod_manager: &ModManager, mod_id: i32, progress_bar: &Progr
     progress_bar.set_fraction(0.6);
     let mod_data = client.download_mod(mod_id, file.id(), nxm_info).await?;
     
-    // Install mod
     progress_bar.set_fraction(0.8);
-    let mod_path = mod_manager.mods_path().join(&file.file_name);
-    std::fs::write(&mod_path, mod_data)?;
+    
+    let final_path = if file.file_name.to_lowercase().ends_with(".zip") {
+        // Create temp dir for extraction
+        let temp_dir = tempfile::tempdir()?;
+        let temp_zip = temp_dir.path().join(&file.file_name);
+        std::fs::write(&temp_zip, &mod_data)?;
+        
+        // Extract pak files
+        let mut pak_path = None;
+        if let Ok(file) = std::fs::File::open(&temp_zip) {
+            if let Ok(mut archive) = zip::ZipArchive::new(file) {
+                for i in 0..archive.len() {
+                    if let Ok(mut zip_file) = archive.by_index(i) {
+                        let outpath = match zip_file.enclosed_name() {
+                            Some(path) => path.to_owned(),
+                            None => continue,
+                        };
+                        
+                        if outpath.extension().map_or(false, |ext| ext == "pak") {
+                            let pak_path_temp = mod_manager.mods_path().join(outpath.file_name().unwrap());
+                            let mut outfile = std::fs::File::create(&pak_path_temp)?;
+                            std::io::copy(&mut zip_file, &mut outfile)?;
+                            pak_path = Some(pak_path_temp);
+                            break; // Install first pak file found
+                        }
+                    }
+                }
+            }
+        }
+        
+        pak_path.ok_or_else(|| anyhow::anyhow!("No .pak file found in zip archive"))?
+    } else {
+        // Direct pak file
+        let mod_path = mod_manager.mods_path().join(&file.file_name);
+        std::fs::write(&mod_path, mod_data)?;
+        mod_path
+    };
     
     progress_bar.set_fraction(1.0);
     
@@ -258,7 +292,7 @@ async fn install_mod(mod_manager: &ModManager, mod_id: i32, progress_bar: &Progr
         author: mod_info.user.name,
         description: mod_info.description,
         nexus_mod_id: Some(mod_id),
-        installed_path: Some(mod_path),
+        installed_path: Some(final_path),
         enabled: true,
     })
 }

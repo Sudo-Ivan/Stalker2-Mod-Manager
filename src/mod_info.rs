@@ -59,18 +59,29 @@ impl ModInfo {
 
         // Keep existing switch functionality
         if let Some(path) = self.installed_path.clone() {
+            let path = path.clone();
             enable_switch.connect_state_set(move |switch, state| {
+                eprintln!("Toggling mod state: {:?} -> {}", path, state);
+                
                 let settings = Settings::load();
-                if let Ok(mod_manager) = ModManager::new(settings) {
-                    println!("Toggling mod state: {} -> {}", path.display(), state);
-                    let result = if state {
-                        mod_manager.enable_mod(&path)
+                if let Ok(mod_manager) = ModManager::new(settings.clone()) {
+                    // Convert to absolute path if needed
+                    let absolute_path = if path.is_absolute() {
+                        path.clone()
                     } else {
-                        mod_manager.disable_mod(&path)
+                        settings.game_path.clone()
+                            .unwrap_or_else(|| PathBuf::new())
+                            .join(&path)
+                    };
+                    
+                    let result = if state {
+                        mod_manager.enable_mod(&absolute_path)
+                    } else {
+                        mod_manager.disable_mod(&absolute_path)
                     };
 
                     if let Err(e) = result {
-                        eprintln!("Failed to toggle mod state: {}", e);
+                        eprintln!("Failed to toggle mod state: {} (path: {:?})", e, absolute_path);
                         switch.set_active(!state);
                     }
                 }
