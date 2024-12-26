@@ -1,11 +1,13 @@
 use gtk::prelude::*;
-use gtk::{Dialog, Box, Label, Entry, ProgressBar, ResponseType, Orientation, Button, Window};
+use gtk::{Dialog, Box, Label, Entry, ProgressBar, ResponseType, Orientation, Button, Window, FileChooserDialog, FileChooserAction, FileFilter};
 use gtk::glib::{self, clone};
 use std::path::Path;
 use crate::mod_info::ModInfo;
 use crate::mod_manager::ModManager;
 use crate::settings::Settings;
 use crate::nexus_api::NxmLink;
+use std::fs;
+use tempfile::tempdir;
 
 pub fn show_install_dialog(parent: &impl IsA<gtk::Window>, list_box: &gtk::ListBox) {
     let dialog = Dialog::builder()
@@ -78,6 +80,9 @@ pub fn show_install_dialog(parent: &impl IsA<gtk::Window>, list_box: &gtk::ListB
                 status_label.set_text("Fetching mod information...");
                 install_button.set_sensitive(false);
 
+                // Create a new Tokio runtime for async operations
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                
                 let ctx = glib::MainContext::default();
                 ctx.spawn_local(clone!(@weak dialog, @weak progress_bar, @weak status_label, @weak list_box, @weak install_button => async move {
                     let settings = Settings::load();
@@ -90,7 +95,8 @@ pub fn show_install_dialog(parent: &impl IsA<gtk::Window>, list_box: &gtk::ListB
                         let base_progress = (index as f64) / total_mods;
                         status_label.set_text(&format!("Installing mod {} of {}", index + 1, ids.len()));
                         
-                        match install_mod(&mod_manager, *mod_id, &progress_bar, None).await {
+                        // Use the runtime to execute async operations
+                        match rt.block_on(install_mod(&mod_manager, *mod_id, &progress_bar, None)) {
                             Ok(mod_info) => {
                                 list_box.append(&mod_info.to_list_box_row());
                                 success_count += 1;
@@ -99,29 +105,28 @@ pub fn show_install_dialog(parent: &impl IsA<gtk::Window>, list_box: &gtk::ListB
                                 errors.push(format!("Mod {}: {}", mod_id, e));
                             }
                         }
-                        progress_bar.set_fraction(base_progress + (1.0 / total_mods));
                     }
 
+                    // Update UI with results
+                    let status_text = if errors.is_empty() {
+                        format!("Successfully installed {} mods", success_count)
+                    } else {
+                        format!("Installed {} mods with {} errors:\n{}", 
+                            success_count, 
+                            errors.len(),
+                            errors.join("\n"))
+                    };
+                    
+                    status_label.set_text(&status_text);
+                    install_button.set_sensitive(true);
+                    
                     if errors.is_empty() {
                         dialog.close();
-                    } else {
-                        let error_text = format!(
-                            "Installed {}/{} mods successfully.\nErrors:\n{}",
-                            success_count,
-                            ids.len(),
-                            errors.join("\n")
-                        );
-                        status_label.set_text(&error_text);
-                        progress_bar.set_visible(false);
-                        install_button.set_sensitive(true);
                     }
                 }));
             },
-            Ok(_) => {
-                status_label.set_text("Please enter at least one mod ID");
-            },
-            Err(_) => {
-                status_label.set_text("Please enter valid mod IDs separated by commas");
+            _ => {
+                status_label.set_text("Please enter valid mod IDs");
             }
         }
     }));
@@ -258,73 +263,107 @@ async fn install_mod(mod_manager: &ModManager, mod_id: i32, progress_bar: &Progr
     })
 }
 
-fn show_file_chooser_dialog(parent: &impl IsA<Window>, list_box: &gtk::ListBox) {
-    let dialog = gtk::FileChooserDialog::new(
-        Some("Select PAK File"),
+pub fn show_file_chooser_dialog(parent: &impl IsA<Window>, list_box: &gtk::ListBox) {
+    let file_chooser = FileChooserDialog::new(
+        Some("Select Mod File"),
         Some(parent),
-        gtk::FileChooserAction::Open,
-        &[
-            ("Cancel", gtk::ResponseType::Cancel),
-            ("Open", gtk::ResponseType::Accept),
-        ],
+        FileChooserAction::Open,
+        &[("Cancel", ResponseType::Cancel), ("Open", ResponseType::Accept)]
     );
 
-    // Add file filter for .pak files
-    let filter = gtk::FileFilter::new();
-    filter.add_pattern("*.pak");
-    filter.set_name(Some("PAK files"));
-    dialog.add_filter(&filter);
+    // Add filters for both .pak and .zip files
+    let pak_filter = FileFilter::new();
+    pak_filter.add_pattern("*.pak");
+    pak_filter.set_name(Some("PAK files"));
+    file_chooser.add_filter(&pak_filter);
 
-    dialog.connect_response(clone!(@weak list_box => move |dialog, response| {
-        if response == gtk::ResponseType::Accept {
-            if let Some(file) = dialog.file() {
+    let zip_filter = FileFilter::new();
+    zip_filter.add_pattern("*.zip");
+    zip_filter.set_name(Some("ZIP files"));
+    file_chooser.add_filter(&zip_filter);
+
+    file_chooser.connect_response(clone!(@weak list_box => move |file_chooser, response| {
+        if response == ResponseType::Accept {
+            if let Some(file) = file_chooser.file() {
                 if let Some(path) = file.path() {
                     let settings = Settings::load();
-                    let mod_manager = ModManager::new(settings).unwrap();
-                    
-                    match install_local_mod(&mod_manager, &path) {
-                        Ok(mod_info) => {
-                            list_box.append(&mod_info.to_list_box_row());
-                        },
-                        Err(e) => {
-                            show_error_dialog(dialog, &format!("Failed to install mod: {}", e));
+                    if let Ok(mod_manager) = ModManager::new(settings) {
+                        match path.extension().and_then(|ext| ext.to_str()) {
+                            Some("pak") => {
+                                handle_pak_file(&mod_manager, &path, &list_box);
+                            },
+                            Some("zip") => {
+                                handle_zip_file(&mod_manager, &path, &list_box);
+                            },
+                            _ => eprintln!("Unsupported file type"),
                         }
                     }
                 }
             }
         }
-        dialog.close();
+        file_chooser.close();
     }));
 
-    dialog.present();
+    file_chooser.show();
 }
 
-fn install_local_mod(mod_manager: &ModManager, source_path: &Path) -> anyhow::Result<ModInfo> {
-    // Create mods directory if it doesn't exist
-    std::fs::create_dir_all(mod_manager.mods_path())?;
+fn handle_pak_file(mod_manager: &ModManager, path: &Path, list_box: &gtk::ListBox) {
+    if let Ok(dest_path) = mod_manager.install_local_mod(path) {
+        let name = dest_path.file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
 
-    // Get the filename and clean it
-    let file_name = source_path.file_name()
-        .ok_or_else(|| anyhow::anyhow!("Invalid file name"))?;
-    let name = file_name.to_string_lossy();
-    let clean_name = name.trim_end_matches(".pak").to_string() + ".pak";
+        let mod_info = ModInfo {
+            name,
+            version: String::from("1.0"),
+            author: String::from("Unknown"),
+            description: String::new(),
+            nexus_mod_id: None,
+            installed_path: Some(dest_path),
+            enabled: true,
+        };
 
-    // Construct destination path
-    let dest_path = mod_manager.mods_path().join(&clean_name);
+        list_box.append(&mod_info.to_list_box_row());
+        let _ = mod_manager.add_to_mod_list(mod_info);
+    }
+}
 
-    // Copy the file
-    std::fs::copy(source_path, &dest_path)?;
+fn handle_zip_file(mod_manager: &ModManager, path: &Path, list_box: &gtk::ListBox) {
+    // Create a temporary directory for extraction
+    if let Ok(temp_dir) = tempdir() {
+        if let Ok(file) = fs::File::open(path) {
+            if let Ok(mut archive) = zip::ZipArchive::new(file) {
+                // Extract all .pak files
+                for i in 0..archive.len() {
+                    if let Ok(mut file) = archive.by_index(i) {
+                        let outpath = match file.enclosed_name() {
+                            Some(path) => path.to_owned(),
+                            None => continue,
+                        };
 
-    // Create ModInfo from local file
-    Ok(ModInfo {
-        name: clean_name,
-        version: "Local".to_string(),
-        author: "Local".to_string(),
-        description: "Locally installed mod".to_string(),
-        nexus_mod_id: None,
-        installed_path: Some(dest_path),
-        enabled: true,
-    })
+                        if outpath.extension().map_or(false, |ext| ext == "pak") {
+                            let temp_path = temp_dir.path().join(&outpath);
+                            
+                            // Create parent directories if needed
+                            if let Some(parent) = temp_path.parent() {
+                                let _ = fs::create_dir_all(parent);
+                            }
+
+                            // Extract the .pak file
+                            if let Ok(mut outfile) = fs::File::create(&temp_path) {
+                                if let Ok(_) = std::io::copy(&mut file, &mut outfile) {
+                                    // Install the extracted .pak file
+                                    handle_pak_file(mod_manager, &temp_path, list_box);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Temp dir is automatically cleaned up when it goes out of scope
+    }
 }
 
 fn show_error_dialog(parent: &impl IsA<Window>, message: &str) {

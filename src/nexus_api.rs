@@ -44,18 +44,6 @@ impl ModFile {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct DownloadLink {
-    pub name: String,
-    pub short_name: String,
-    pub uri: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ModFilesResponse {
-    pub files: Vec<ModFile>,
-}
-
 #[derive(Debug)]
 pub struct NxmLink {
     pub game_domain: String,
@@ -74,21 +62,43 @@ impl NxmLink {
             return Err(anyhow::anyhow!("Invalid NXM URL scheme"));
         }
 
-        let segments: Vec<&str> = url.path_segments().ok_or_else(|| anyhow::anyhow!("Invalid URL path"))?.collect();
-        if segments.len() != 4 || segments[1] != "mods" || segments[3] != "files" {
+        let segments: Vec<&str> = url.path_segments()
+            .ok_or_else(|| anyhow::anyhow!("Invalid URL path"))?
+            .collect();
+        
+        if segments.len() != 4 {
             return Err(anyhow::anyhow!("Invalid NXM URL format"));
         }
 
         let query: std::collections::HashMap<_, _> = url.query_pairs().collect();
         
         Ok(Self {
-            game_domain: url.host_str().ok_or_else(|| anyhow::anyhow!("Missing game domain"))?.to_string(),
-            mod_id: segments[2].parse()?,
-            file_id: segments[4].parse()?,
-            key: query.get("key").ok_or_else(|| anyhow::anyhow!("Missing key"))?.to_string(),
-            expires: query.get("expires").ok_or_else(|| anyhow::anyhow!("Missing expires"))?.parse()?,
+            game_domain: url.host_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing game domain"))?
+                .to_string(),
+            mod_id: segments[1].parse()?,
+            file_id: segments[3].parse()?,
+            key: query.get("key")
+                .ok_or_else(|| anyhow::anyhow!("Missing key"))?
+                .to_string(),
+            expires: query.get("expires")
+                .ok_or_else(|| anyhow::anyhow!("Missing expires"))?
+                .parse()?,
         })
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DownloadLink {
+    pub name: String,
+    pub short_name: String,
+    #[serde(rename = "URI")]
+    pub uri: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ModFilesResponse {
+    pub files: Vec<ModFile>,
 }
 
 pub struct NexusClient {
@@ -189,8 +199,9 @@ impl NexusClient {
         
         // Download the actual file
         let mod_response = self.client.get(&download_url.uri)
-            .send()
-            .await?;
+        .header("apikey", &self.api_key)
+        .send()
+        .await?;
         
         if !mod_response.status().is_success() {
             return Err(anyhow::anyhow!("Failed to download mod: {}", mod_response.status()));

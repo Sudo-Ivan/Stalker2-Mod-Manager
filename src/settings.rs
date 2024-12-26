@@ -5,7 +5,6 @@ use std::path::PathBuf;
 pub struct Settings {
     pub game_path: Option<PathBuf>,
     pub nexus_api_key: Option<String>,
-    pub dark_theme: bool,
 }
 
 impl Settings {
@@ -38,7 +37,6 @@ impl Default for Settings {
         Self {
             game_path: None,
             nexus_api_key: None,
-            dark_theme: true,
         }
     }
 } 

@@ -66,22 +66,41 @@ impl ModManager {
     }
 
     pub fn get_installed_mods(&self) -> Result<Vec<PathBuf>> {
-        let mut mods = Vec::new();
+        // Load the mod list from JSON
+        let mod_list = self.load_mod_list()?;
+        
+        // Get paths from mod list
+        let mut mods: Vec<PathBuf> = mod_list.iter()
+            .filter_map(|mod_info| mod_info.installed_path.clone())
+            .collect();
 
-        // Get loaded mods
+        // Also scan directories for any untracked mods
+        let existing_paths: Vec<PathBuf> = mods.clone();
+
+        // Check ~mods directory for untracked mods
         if self.mods_path.exists() {
-            mods.extend(std::fs::read_dir(&self.mods_path)?
-                .filter_map(|entry| entry.ok())
-                .map(|entry| entry.path())
-                .filter(|path| path.extension().map_or(false, |ext| ext == "pak")));
+            mods.extend(
+                std::fs::read_dir(&self.mods_path)?
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| entry.path())
+                    .filter(|path| {
+                        path.extension().map_or(false, |ext| ext == "pak") 
+                        && !existing_paths.contains(path)
+                    })
+            );
         }
 
-        // Get unloaded mods
+        // Check unloaded mods directory for untracked mods
         if self.unloaded_mods_path.exists() {
-            mods.extend(std::fs::read_dir(&self.unloaded_mods_path)?
-                .filter_map(|entry| entry.ok())
-                .map(|entry| entry.path())
-                .filter(|path| path.extension().map_or(false, |ext| ext == "pak")));
+            mods.extend(
+                std::fs::read_dir(&self.unloaded_mods_path)?
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| entry.path())
+                    .filter(|path| {
+                        path.extension().map_or(false, |ext| ext == "pak")
+                        && !existing_paths.contains(path)
+                    })
+            );
         }
 
         Ok(mods)
@@ -168,58 +187,54 @@ impl ModManager {
     }
 
     pub fn load_mod_list(&self) -> Result<Vec<ModInfo>> {
+        let mut mods: Vec<ModInfo> = Vec::new();
+        
+        // First load saved mod list
         let mod_list_path = self.settings.game_path.clone()
             .unwrap_or_else(|| PathBuf::new())
             .join("Stalker2")
             .join("ModManager")
             .join("mod_list.json");
 
-        println!("Loading mods from: {:?}", mod_list_path);
-
-        if !mod_list_path.exists() {
-            println!("No mod list file found");
-            return Ok(Vec::new());
+        if mod_list_path.exists() {
+            let json = fs::read_to_string(&mod_list_path)?;
+            mods = serde_json::from_str(&json)?;
         }
 
-        let json = fs::read_to_string(&mod_list_path)?;
-        println!("Loaded JSON: {}", json);
-        
-        let mods: Vec<ModInfo> = serde_json::from_str(&json)?;
-        println!("Parsed {} mods from JSON", mods.len());
-        
-        let mut verified_mods = Vec::new();
-        for mut mod_info in mods {
-            if let Some(path) = &mod_info.installed_path {
-                let file_name = path.file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .map(|n| n.trim_end_matches(".pak").to_string() + ".pak");
-                
-                if let Some(name) = file_name {
-                    let enabled_path = self.mods_path.join(&name);
-                    let disabled_path = self.unloaded_mods_path.join(&name);
-                    
-                    println!("Checking mod paths: \nEnabled: {:?}\nDisabled: {:?}", enabled_path, disabled_path);
-                    
-                    // Check if either path exists
-                    if enabled_path.exists() {
-                        println!("Found enabled mod: {}", name);
-                        mod_info.enabled = true;
-                        mod_info.installed_path = Some(enabled_path);
-                        verified_mods.push(mod_info);
-                    } else if disabled_path.exists() {
-                        println!("Found disabled mod: {}", name);
-                        mod_info.enabled = false;
-                        mod_info.installed_path = Some(disabled_path);
-                        verified_mods.push(mod_info);
-                    } else {
-                        println!("Mod file not found at either location: {}", name);
+        // Then scan for untracked mods in both directories
+        let existing_paths: Vec<PathBuf> = mods.iter()
+            .filter_map(|m| m.installed_path.clone())
+            .collect();
+
+        // Check ~mods directory
+        if self.mods_path.exists() {
+            for entry in std::fs::read_dir(&self.mods_path)? {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.extension().map_or(false, |ext| ext == "pak") 
+                        && !existing_paths.contains(&path) {
+                        // Add untracked mod
+                        mods.push(ModInfo {
+                            name: path.file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string(),
+                            version: "Unknown".to_string(),
+                            author: "Unknown".to_string(),
+                            description: String::new(),
+                            nexus_mod_id: None,
+                            installed_path: Some(path),
+                            enabled: true,
+                        });
                     }
                 }
             }
         }
 
-        println!("Returning {} verified mods", verified_mods.len());
-        Ok(verified_mods)
+        // Save updated list if new mods were found
+        self.save_mod_list(&mods)?;
+        
+        Ok(mods)
     }
 
     pub fn export_mods(&self, zip_path: &Path) -> Result<()> {

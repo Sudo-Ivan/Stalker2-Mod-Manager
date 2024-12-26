@@ -1,6 +1,6 @@
 [package]
 name = "stalker2-mod-manager"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Sudo-Ivan>"]
 description = "A mod manager for S.T.A.L.K.E.R. 2: Heart of Chornobyl"
@@ -20,6 +20,7 @@ url = "2.5.0"
 pulldown-cmark = "0.9"
 zip = "0.6"
 async-channel = "2.1"
+tempfile = "3.14.0"
 
 [profile.release]
 opt-level = "z"

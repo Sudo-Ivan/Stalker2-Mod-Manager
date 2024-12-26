@@ -73,14 +73,46 @@ fn build_ui(app: &Application) {
         .default_height(768)
         .build();
 
-    // Create main container
     let main_box = Box::new(Orientation::Vertical, 0);
     
     // Create scrolled window and list box first
     let scrolled = ScrolledWindow::new();
+    scrolled.set_vexpand(true);
+    scrolled.set_hexpand(true);
+
     let list_box = gtk::ListBox::new();
     list_box.set_selection_mode(gtk::SelectionMode::None);
-    
+    list_box.add_css_class("mod-list");
+
+    // Add CSS styling
+    let provider = gtk::CssProvider::new();
+    provider.load_from_data(
+        "
+        .mod-list {
+            background-color: @theme_bg_color;
+            padding: 6px;
+        }
+        .mod-list row {
+            padding: 8px;
+            margin: 2px;
+            border-radius: 6px;
+            min-height: 40px;
+        }
+        .mod-list row:hover {
+            background-color: alpha(@theme_fg_color, 0.05);
+        }
+        "
+    );
+
+    // Add the CSS provider to the default screen
+    if let Some(display) = gtk::gdk::Display::default() {
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+
     // Load existing mods
     if let Ok(mods) = mod_manager.borrow().load_mod_list() {
         for mod_info in mods {
