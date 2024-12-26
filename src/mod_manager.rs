@@ -239,9 +239,15 @@ impl ModManager {
             mods = serde_json::from_str(&json)?;
         }
 
-        // Then scan for untracked mods in both directories
+        // Track both paths and filenames to prevent duplicates
         let existing_paths: Vec<PathBuf> = mods.iter()
             .filter_map(|m| m.installed_path.clone())
+            .collect();
+        
+        let existing_filenames: Vec<String> = existing_paths.iter()
+            .filter_map(|p| p.file_name())
+            .filter_map(|f| f.to_str())
+            .map(|s| s.to_string())
             .collect();
 
         // Check ~mods directory
@@ -249,21 +255,28 @@ impl ModManager {
             for entry in std::fs::read_dir(&self.mods_path)? {
                 if let Ok(entry) = entry {
                     let path = entry.path();
-                    if path.extension().map_or(false, |ext| ext == "pak") 
-                        && !existing_paths.contains(&path) {
-                        // Add untracked mod
-                        mods.push(ModInfo {
-                            name: path.file_stem()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string(),
-                            version: "Unknown".to_string(),
-                            author: "Unknown".to_string(),
-                            description: String::new(),
-                            nexus_mod_id: None,
-                            installed_path: Some(path),
-                            enabled: true,
-                        });
+                    if path.extension().map_or(false, |ext| ext == "pak") {
+                        let filename = path.file_name()
+                            .and_then(|f| f.to_str())
+                            .map(|s| s.to_string());
+                        
+                        // Only add if neither path nor filename exists in tracked mods
+                        if !existing_paths.contains(&path) && 
+                           !filename.as_ref().map_or(false, |f| existing_filenames.contains(f)) {
+                            // Add untracked mod
+                            mods.push(ModInfo {
+                                name: path.file_stem()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string(),
+                                version: "Unknown".to_string(),
+                                author: "Unknown".to_string(),
+                                description: String::new(),
+                                nexus_mod_id: None,
+                                installed_path: Some(path),
+                                enabled: true,
+                            });
+                        }
                     }
                 }
             }

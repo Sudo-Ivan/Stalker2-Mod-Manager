@@ -105,17 +105,27 @@ fn build_ui(app: &Application) {
         switch {
             margin: 4px;
         }
-        switch:disabled {
-            opacity: 0.6;
+        switch:checked {
+            background-color: @theme_selected_bg_color;
         }
-        switch:disabled slider {
-            background-color: @theme_bg_color;
+        switch:not(:checked) {
+            background-color: alpha(@theme_fg_color, 0.15);
         }
         switch:disabled:checked {
-            background-color: alpha(@theme_selected_bg_color, 0.3);
+            background-color: mix(@theme_selected_bg_color, @theme_bg_color, 0.5);
         }
         switch:disabled:not(:checked) {
-            background-color: alpha(@theme_fg_color, 0.1);
+            background-color: mix(@theme_fg_color, @theme_bg_color, 0.15);
+        }
+        switch slider {
+            min-width: 24px;
+            min-height: 24px;
+            background-color: @theme_bg_color;
+            border: 1px solid alpha(@theme_fg_color, 0.1);
+            box-shadow: none;
+        }
+        switch:disabled slider {
+            background-color: mix(@theme_bg_color, @theme_fg_color, 0.95);
         }
         "
     );

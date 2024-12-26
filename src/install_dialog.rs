@@ -255,6 +255,7 @@ async fn install_mod(mod_manager: &ModManager, mod_id: i32, progress_bar: &Progr
         
         // Extract pak files
         let mut pak_path = None;
+        let mut pak_name = None;
         if let Ok(file) = std::fs::File::open(&temp_zip) {
             if let Ok(mut archive) = zip::ZipArchive::new(file) {
                 for i in 0..archive.len() {
@@ -265,11 +266,14 @@ async fn install_mod(mod_manager: &ModManager, mod_id: i32, progress_bar: &Progr
                         };
                         
                         if outpath.extension().map_or(false, |ext| ext == "pak") {
-                            let pak_path_temp = mod_manager.mods_path().join(outpath.file_name().unwrap());
+                            // Use the original filename from the zip
+                            let pak_filename = outpath.file_name().unwrap();
+                            pak_name = Some(pak_filename.to_string_lossy().to_string());
+                            let pak_path_temp = mod_manager.mods_path().join(pak_filename);
                             let mut outfile = std::fs::File::create(&pak_path_temp)?;
                             std::io::copy(&mut zip_file, &mut outfile)?;
                             pak_path = Some(pak_path_temp);
-                            break; // Install first pak file found
+                            break;
                         }
                     }
                 }
@@ -285,9 +289,14 @@ async fn install_mod(mod_manager: &ModManager, mod_id: i32, progress_bar: &Progr
     };
     
     progress_bar.set_fraction(1.0);
+
+    // Use the pak filename (without extension) as the mod name
+    let name = final_path.file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or(mod_info.name);
     
     Ok(ModInfo {
-        name: mod_info.name,
+        name,
         version: file.version.clone().unwrap_or_else(|| "1.0".to_string()),
         author: mod_info.user.name,
         description: mod_info.description,
