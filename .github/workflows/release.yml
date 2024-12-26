@@ -35,7 +35,6 @@ jobs:
           ARCHIVE_NAME: ${{ matrix.binary_name }}-${{ matrix.target }}.${{ matrix.archive }}
           MINIFY: true
           EXTRA_FILES: "README.md LICENSE"
-          EXTRA_COMMAND_FLAGS: "--release"
 
       # Upload raw binary
       - name: Upload raw binary
